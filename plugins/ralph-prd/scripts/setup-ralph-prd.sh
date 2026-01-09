@@ -163,32 +163,9 @@ EOF
   echo "📝 Created progress.txt for tracking learnings"
 fi
 
-# Create state file for stop hook (markdown with YAML frontmatter)
-mkdir -p .claude
-
-COMPLETION_PROMISE="ALL_STORIES_COMPLETE"
-
-STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-# Create state file in JSON format (machine-readable)
-RALPH_STATE_FILE=".claude/ralph-prd-loop.local.json"
-
-jq -n \
-  --arg maxIterations "$MAX_ITERATIONS" \
-  --arg completionPromise "$COMPLETION_PROMISE" \
-  --arg startedAt "$STARTED_AT" \
-  --arg prdFile "$PRD_FILE" \
-  '{
-    active: true,
-    iteration: 1,
-    maxIterations: ($maxIterations | tonumber),
-    completionPromise: $completionPromise,
-    startedAt: $startedAt,
-    prdFile: $prdFile,
-    prompt: "You are now in Ralph PRD loop. Follow the instructions in the command output."
-  }' > "$RALPH_STATE_FILE"
-
 # Initialize event log
+mkdir -p .claude
+STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EVENT_LOG=".claude/ralph-prd-events.jsonl"
 echo "{\"event\":\"loop_started\",\"timestamp\":\"$STARTED_AT\",\"maxIterations\":$MAX_ITERATIONS,\"totalStories\":$TOTAL_STORIES,\"incompleteStories\":$INCOMPLETE_STORIES,\"prdFile\":\"$PRD_FILE\"}" > "$EVENT_LOG"
 
@@ -197,7 +174,7 @@ PROJECT_NAME=$(jq -r '.project // "Unknown"' "$PRD_FILE")
 BRANCH_NAME=$(jq -r '.branchName // "unknown"' "$PRD_FILE")
 
 cat <<EOF
-🔄 Ralph PRD loop activated!
+🚀 Ralph PRD Loop - Coordinator Mode Initialized
 
 Project: $PROJECT_NAME
 Branch: $BRANCH_NAME
@@ -205,28 +182,35 @@ Total stories: $TOTAL_STORIES
 Incomplete stories: $INCOMPLETE_STORIES
 Max iterations: $(if [[ $MAX_ITERATIONS -gt 0 ]]; then echo $MAX_ITERATIONS; else echo "unlimited"; fi)
 
-The stop hook is now active. When you try to exit, the loop will:
-1. Check if all stories have passes: true
-2. If not, feed the same prompt back to you
-3. You'll see your previous work in files and git history
-4. Iterate on the next story with passes: false
+🆕 NEW ARCHITECTURE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+You are now a COORDINATOR. You will:
+1. Read prd.json to find incomplete stories
+2. Spawn Task agents (one per story)
+3. Each Task agent gets FRESH CONTEXT (~150k tokens)
+4. Monitor progress and handle failures
+
+🎯 Key difference from old version:
+- OLD: Single session, context accumulates → context exhaustion
+- NEW: Fresh Task agent per story → no accumulation → unlimited stories
 
 To monitor progress:
-  jq '.userStories[] | {id, title, passes}' prd.json
-  tail -20 progress.txt
-  head -10 .claude/ralph-prd-loop.local.md
+  scripts/check-stories.sh
+  scripts/view-progress.sh
+  scripts/monitor-events.sh
 
 ⚠️  WARNING: This loop will run until all stories are complete or max-iterations
-    is reached. Each iteration works on ONE story at a time.
+    is reached. Each iteration spawns a FRESH Task agent for ONE story.
 
 ═══════════════════════════════════════════════════════════
-Next Steps:
-1. Check your current git branch matches: $BRANCH_NAME
-2. Read prd.json to understand all user stories
-3. Pick the highest priority story with passes: false
-4. Implement it, test it, commit it
-5. Update that story's passes field to true in prd.json
-6. Append progress to progress.txt
+Next Steps (for coordinator):
+1. Verify branch: $BRANCH_NAME
+2. Read prd.json to find next incomplete story
+3. Spawn Task agent with implement-story.md instructions
+4. Wait for Task agent to complete
+5. Check if story.passes == true
+6. If yes: Continue to next story
+7. If no: Report failure and stop
 7. Loop continues automatically...
 ═══════════════════════════════════════════════════════════
 EOF

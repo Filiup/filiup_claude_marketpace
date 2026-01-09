@@ -32,15 +32,17 @@ tail -f "$EVENT_LOG" | while read -r line; do
   echo "$line" | jq -r '
     if .event == "loop_started" then
       "🚀 Loop started | stories=\(.totalStories) incomplete=\(.incompleteStories) max=\(.maxIterations)"
-    elif .event == "iteration_started" then
-      "🔄 Iteration \(.iteration) | incomplete=\(.incompleteStories) next=\(.nextStory)"
+    elif .event == "story_started" then
+      "📝 Story started | iteration=\(.iteration) story=\(.storyId): \(.storyTitle)"
+    elif .event == "story_completed" then
+      "✅ Story completed | iteration=\(.iteration) story=\(.storyId) files=\(.filesChanged)"
+    elif .event == "story_failed" then
+      "❌ Story failed | iteration=\(.iteration) story=\(.storyId) reason=\(.reason)"
+    elif .event == "loop_completed" then
+      "🎉 Loop completed | All stories done! | iterations=\(.totalIterations)"
     elif .event == "loop_stopped" then
-      if .reason == "all_complete" then
-        "✅ Loop stopped | All stories complete! | iterations=\(.iteration)"
-      elif .reason == "max_iterations" then
-        "🛑 Loop stopped | Max iterations reached | \(.iteration)/\(.maxIterations)"
-      elif .reason == "completion_promise" then
-        "✅ Loop stopped | Promise fulfilled: \(.promise)"
+      if .reason == "max_iterations" then
+        "🛑 Loop stopped | Max iterations reached | iteration=\(.iteration)"
       else
         "🛑 Loop stopped | reason=\(.reason)"
       end

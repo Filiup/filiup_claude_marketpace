@@ -9,9 +9,43 @@ Ralph PRD implements the ["Ralph Wiggum" pattern](https://x.com/natfriedman/stat
 **How it works:**
 1. You write a Product Requirements Document (PRD) describing your feature
 2. Convert it to `prd.json` with structured user stories
-3. Start the Ralph loop - Claude iteratively implements each story
-4. Each iteration: pick story → implement → test → commit → update status
+3. Start the Ralph loop - coordinator spawns Task agents per story
+4. Each Task agent gets **fresh context** (~150k tokens) to implement one story
 5. Loop continues until all stories have `passes: true`
+
+## Architecture
+
+**Problem**: Traditional single-session agents accumulate context over many iterations, eventually hitting context window limits and failing on larger features.
+
+**Solution**: Ralph PRD uses a **coordinator + Task agent** pattern:
+
+```
+┌──────────────────────────────────────────┐
+│  Coordinator Agent (minimal context)    │
+│  - Reads prd.json                        │
+│  - Finds next incomplete story           │
+│  - Spawns Task agent per story           │
+│  - Monitors progress                     │
+└──────────────────────────────────────────┘
+                  │
+                  ├─> Task Agent 1 (US-001) → Fresh 150k context → Impl + Commit → Exit
+                  │
+                  ├─> Task Agent 2 (US-002) → Fresh 150k context → Impl + Commit → Exit
+                  │
+                  └─> Task Agent 3 (US-003) → Fresh 150k context → Impl + Commit → Exit
+```
+
+**Key benefits**:
+- ✅ Each story gets full context window (~150k tokens)
+- ✅ No context accumulation across stories
+- ✅ Can handle 50+ story features (limited only by story size, not total count)
+- ✅ Pausable/resumable (prd.json = state)
+- ✅ Quality gates per story (typecheck, tests)
+
+**Memory mechanism**:
+- **Code state**: Git commits (ground truth)
+- **Story status**: prd.json (`passes: true/false`)
+- **Learnings**: progress.jsonl (for future Task agents to read)
 
 ## Installation
 
@@ -87,14 +121,20 @@ Starts the Ralph loop to iteratively implement all user stories.
 ```
 
 **What happens:**
-1. Claude reads `prd.json` and picks the highest priority story with `passes: false`
-2. Implements that single story
-3. Runs quality checks (typecheck, tests, etc.)
-4. Commits changes if checks pass: `feat: US-001 - Add priority field to database`
-5. Updates the story to `passes: true` in prd.json
-6. Appends progress to `progress.txt`
-7. Stop hook feeds the prompt back → next iteration begins
-8. Repeats until all stories have `passes: true`
+1. **Coordinator** reads `prd.json` and finds highest priority story with `passes: false`
+2. **Spawns fresh Task agent** for that story (fresh context ~150k tokens)
+3. **Task agent**:
+   - Reads prd.json, progress.jsonl for context
+   - Implements the single story
+   - Runs quality checks (typecheck, tests, lint) with retries
+   - Commits if checks pass: `feat: US-001 - Add priority field to database`
+   - Updates prd.json (`passes: true`)
+   - Appends learnings to progress.jsonl
+   - Exits (context discarded)
+4. **Coordinator** checks result and spawns next Task agent
+5. Repeats until all stories have `passes: true`
+
+**Key benefit**: Each story gets fresh context → no context accumulation → unlimited stories possible
 
 ### `/cancel-ralph-prd` - Stop the loop
 
@@ -187,7 +227,9 @@ Incomplete: 2
 
 ## Story Size Guidelines
 
-**Each story must be completable in ONE iteration (one context window).**
+**Each story must be completable in ONE Task agent context window (~150k tokens).**
+
+Each story gets its own fresh Task agent. If a story is too large to implement within one context window, it will fail.
 
 ✅ **Right-sized stories:**
 - Add a database column and migration
@@ -305,11 +347,12 @@ This plugin adapts the Amp-based workflow to Claude Code:
 
 | snarktank/ralph | ralph-prd plugin |
 |-----------------|------------------|
-| External bash loop | Internal stop hook loop |
-| Amp CLI | Claude Code session |
-| Amp skills/ | Claude Code commands/ |
-| `$AMP_CURRENT_THREAD_ID` | Not needed (context preserved) |
+| External bash loop | Coordinator agent |
+| Spawns fresh `amp` CLI per story | Spawns fresh Task agent per story |
+| Amp skills/ | Claude Code agents/ |
+| `$AMP_CURRENT_THREAD_ID` | Not needed (no threads) |
 | dev-browser skill | MCP browser tools |
+| Fresh process = fresh context | Fresh Task = fresh context |
 
 ## Troubleshooting
 

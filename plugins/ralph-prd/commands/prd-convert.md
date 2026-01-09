@@ -40,7 +40,7 @@ Take a PRD (markdown file) and convert it to `prd.json` in the current directory
 
 **Each story must be completable in ONE Ralph iteration (one context window).**
 
-Ralph spawns a fresh Claude instance per iteration with no memory of previous work. If a story is too big, the LLM runs out of context before finishing and produces broken code.
+Ralph spawns a fresh Claude Code Task agent per user story. Each Task agent gets a clean context window (~150k tokens). If a story is too big to implement within one context window, the agent will fail or produce incomplete/broken code.
 
 ### Right-sized stories:
 - Add a database column and migration
