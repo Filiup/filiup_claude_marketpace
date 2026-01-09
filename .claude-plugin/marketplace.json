@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "filiup_marketplace",
+  "description": "Custom Claude Code marketplace featuring ralph-prd - autonomous AI agent for completing PRs through structured PRD workflows",
+  "owner": {
+    "name": "Filiup",
+    "email": ""
+  },
+  "plugins": [
+    {
+      "name": "ralph-prd",
+      "description": "Autonomous AI agent loop for completing PRs through structured PRD workflows. Implements the Ralph Wiggum pattern with PRD management, story tracking, progress preservation, and browser testing support.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Filiup",
+        "email": ""
+      },
+      "source": "./plugins/ralph-prd",
+      "category": "development",
+      "homepage": "https://github.com/Filiup/filiup_claude_marketpace"
+    }
+  ]
+}

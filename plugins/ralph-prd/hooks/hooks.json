@@ -1,0 +1,15 @@
+{
+  "description": "Ralph PRD loop hook for autonomous story-based development",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

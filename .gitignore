@@ -1,0 +1,8 @@
+# Marketplace
+*.log
+.DS_Store
+*.tmp
+*.bak
+
+# Claude runtime
+.claude/

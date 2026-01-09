@@ -1,0 +1,36 @@
+# Ralph PRD Plugin - Gitignore
+
+# Test files
+prd.json
+test-*.json
+progress.txt
+
+# Loop state
+.claude/
+*.local.md
+
+# Archives
+archive/
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.tmp.*
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Generated PRDs (if testing)
+tasks/prd-*.md
+
+# Backup files
+*.bak
+*.backup

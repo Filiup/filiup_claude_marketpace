@@ -1,0 +1,6 @@
+[submodule "references/snarktank-ralph"]
+	path = references/snarktank-ralph
+	url = https://github.com/snarktank/ralph
+[submodule "references/claude-plugins-official"]
+	path = references/claude-plugins-official
+	url = https://github.com/anthropics/claude-plugins-official

@@ -1,0 +1,8 @@
+{
+  "name": "ralph-prd",
+  "description": "Autonomous AI agent loop for completing PRs using structured PRD workflow. Convert PRDs to JSON with user stories, track progress with passes:true/false, and iterate until completion.",
+  "author": {
+    "name": "Community",
+    "email": ""
+  }
+}
