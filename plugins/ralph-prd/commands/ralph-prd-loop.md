@@ -26,23 +26,29 @@ You are now an autonomous coding agent working on a software project.
 7. Update AGENTS.md files if you discover reusable patterns (see below)
 8. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
 9. Update the PRD to set `passes: true` for the completed story
-10. Append your progress to `progress.txt`
+10. Append your progress to `progress.jsonl` in JSON Lines format
 
 ## Progress Report Format
 
-APPEND to progress.txt (never replace, always append):
-```
-## [Date/Time] - [Story ID]
-- What was implemented
-- Files changed
-- **Learnings for future iterations:**
-  - Patterns discovered (e.g., "this codebase uses X for Y")
-  - Gotchas encountered (e.g., "don't forget to update Z when changing W")
-  - Useful context (e.g., "the evaluation panel is in component X")
----
+APPEND to progress.jsonl (never replace, always append) as a single JSON line:
+
+```bash
+echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","iteration":'$ITERATION',"storyId":"US-001","action":"completed","summary":"Implemented priority selector dropdown","filesChanged":["src/components/TaskEditModal.tsx"],"learnings":["This codebase uses Radix UI for dropdowns","State updates require calling refetch() on queries"],"durationMinutes":25}' >> progress.jsonl
 ```
 
-The learnings section is critical - it helps future iterations avoid repeating mistakes and understand the codebase better.
+**Required fields:**
+- `timestamp`: ISO 8601 UTC timestamp
+- `iteration`: Current iteration number (from state file)
+- `storyId`: User story ID (e.g., "US-003")
+- `action`: "started", "completed", "failed", or "blocked"
+- `summary`: Brief description of what was done
+- `filesChanged`: Array of file paths modified
+- `learnings`: Array of important discoveries or patterns
+- `durationMinutes`: Approximate time spent (optional)
+
+**Why JSONL?** External agents and tools can easily parse this format with standard JSON tools (jq), enabling automated monitoring, learning extraction, and progress visualization.
+
+**Human-readable view:** Use `scripts/view-progress.sh` to format progress for reading.
 
 ## Consolidate Patterns
 

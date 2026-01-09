@@ -2,10 +2,24 @@
 
 # Ralph PRD Story Status Checker
 # Utility to check status of user stories in prd.json
+# Usage: ./check-stories.sh [prd.json] [--json]
 
 set -euo pipefail
 
-PRD_FILE="${1:-prd.json}"
+# Parse arguments
+JSON_OUTPUT=false
+PRD_FILE="prd.json"
+
+for arg in "$@"; do
+  case $arg in
+    --json)
+      JSON_OUTPUT=true
+      ;;
+    *)
+      PRD_FILE="$arg"
+      ;;
+  esac
+done
 
 if [[ ! -f "$PRD_FILE" ]]; then
   echo "❌ Error: $PRD_FILE not found" >&2
@@ -22,7 +36,25 @@ TOTAL=$(jq -r '.userStories | length' "$PRD_FILE")
 COMPLETE=$(jq -r '[.userStories[] | select(.passes == true)] | length' "$PRD_FILE")
 INCOMPLETE=$(jq -r '[.userStories[] | select(.passes == false)] | length' "$PRD_FILE")
 
-# Display summary
+# JSON output for machine consumption
+if [[ "$JSON_OUTPUT" == "true" ]]; then
+  jq -n \
+    --arg total "$TOTAL" \
+    --arg complete "$COMPLETE" \
+    --arg incomplete "$INCOMPLETE" \
+    --argjson stories "$(jq '.userStories' "$PRD_FILE")" \
+    --argjson nextStory "$(jq '[.userStories[] | select(.passes == false)] | sort_by(.priority) | first // null' "$PRD_FILE")" \
+    '{
+      total: ($total | tonumber),
+      complete: ($complete | tonumber),
+      incomplete: ($incomplete | tonumber),
+      stories: $stories,
+      nextStory: $nextStory
+    }'
+  exit 0
+fi
+
+# Human-readable output
 echo "📊 PRD Story Status"
 echo "───────────────────"
 echo "Total:      $TOTAL"

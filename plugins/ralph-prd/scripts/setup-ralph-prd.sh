@@ -168,18 +168,29 @@ mkdir -p .claude
 
 COMPLETION_PROMISE="ALL_STORIES_COMPLETE"
 
-cat > .claude/ralph-prd-loop.local.md <<EOF
----
-active: true
-iteration: 1
-max_iterations: $MAX_ITERATIONS
-completion_promise: "$COMPLETION_PROMISE"
-started_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-prd_file: "$PRD_FILE"
----
+STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-You are now in Ralph PRD loop. Follow the instructions in the command output.
-EOF
+# Create state file in JSON format (machine-readable)
+RALPH_STATE_FILE=".claude/ralph-prd-loop.local.json"
+
+jq -n \
+  --arg maxIterations "$MAX_ITERATIONS" \
+  --arg completionPromise "$COMPLETION_PROMISE" \
+  --arg startedAt "$STARTED_AT" \
+  --arg prdFile "$PRD_FILE" \
+  '{
+    active: true,
+    iteration: 1,
+    maxIterations: ($maxIterations | tonumber),
+    completionPromise: $completionPromise,
+    startedAt: $startedAt,
+    prdFile: $prdFile,
+    prompt: "You are now in Ralph PRD loop. Follow the instructions in the command output."
+  }' > "$RALPH_STATE_FILE"
+
+# Initialize event log
+EVENT_LOG=".claude/ralph-prd-events.jsonl"
+echo "{\"event\":\"loop_started\",\"timestamp\":\"$STARTED_AT\",\"maxIterations\":$MAX_ITERATIONS,\"totalStories\":$TOTAL_STORIES,\"incompleteStories\":$INCOMPLETE_STORIES,\"prdFile\":\"$PRD_FILE\"}" > "$EVENT_LOG"
 
 # Output setup message
 PROJECT_NAME=$(jq -r '.project // "Unknown"' "$PRD_FILE")

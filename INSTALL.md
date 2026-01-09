@@ -40,28 +40,70 @@ In Claude Code:
 
 ## System Requirements
 
-### Required
-- **Claude Code CLI** installed
-- **jq** - JSON processor
+### Required Software
+
+#### Claude Code CLI
+- **Version:** v1.0.0 or higher
+- **Installation:** See [Claude Code Installation Guide](https://claude.ai/claude-code)
+- **Verify:**
+  ```bash
+  claude --version
+  # or if using npx:
+  npx claude-code --version
+  ```
+
+#### jq - JSON Processor
+- **Version:** 1.6 or higher
+- **Required for:** Parsing prd.json, state files, events
+- **Installation:**
   ```bash
   # Ubuntu/Debian
-  sudo apt install jq
+  sudo apt update && sudo apt install jq
 
   # macOS
   brew install jq
 
-  # Fedora
+  # Fedora/RHEL
   sudo dnf install jq
-  ```
-- **bash** 4.0+ (pre-installed on most systems)
-- **perl** (for multiline parsing in hooks)
 
-### Optional
-- **MCP browser plugin** for UI story testing
+  # Windows (via Chocolatey)
+  choco install jq
+
+  # Or download: https://stedolan.github.io/jq/download/
+  ```
+- **Verify:**
   ```bash
-  # Check availability
+  jq --version
+  # Should output: jq-1.6 or higher
+  ```
+
+#### Git
+- **Version:** 2.0 or higher
+- **Required for:** Branch management, commits
+- **Verify:**
+  ```bash
+  git --version
+  ```
+
+#### Bash
+- **Version:** 4.0 or higher
+- **Pre-installed on:** Most Linux/macOS systems
+- **Verify:**
+  ```bash
+  bash --version
+  # Should show: GNU bash, version 4.x or 5.x
+  ```
+
+### Optional Software
+
+#### MCP Browser Plugin (Playwright)
+- **Purpose:** Automated UI testing for user stories
+- **Installation:** Via Claude Code plugins
+- **Check availability:**
+  ```bash
   ls ~/.claude/plugins/compound-engineering/pw/
   ```
+- **Documentation:** See [MCP Playwright docs](https://github.com/compound-engineering/mcp-plugins)
 
 ---
 

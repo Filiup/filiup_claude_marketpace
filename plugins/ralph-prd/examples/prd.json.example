@@ -1,0 +1,83 @@
+{
+  "project": "TaskManager",
+  "branchName": "ralph/add-task-priority",
+  "description": "Add priority levels to tasks so users can organize by importance",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add priority field to task model",
+      "description": "As a developer, I need to add a priority field to the task data model so tasks can store their priority level",
+      "acceptanceCriteria": [
+        "Task model has a 'priority' field (enum: low, medium, high)",
+        "Database migration adds priority column with default 'medium'",
+        "Existing tasks are migrated with default priority",
+        "TypeScript types updated to include priority",
+        "Unit tests pass for task model with priority"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Add priority selector to task creation form",
+      "description": "As a user, I want to select a priority level when creating a task so I can indicate its importance",
+      "acceptanceCriteria": [
+        "Task creation form shows priority dropdown (Low, Medium, High)",
+        "Default priority is 'Medium'",
+        "Selected priority is saved with the task",
+        "Form validation ensures priority is always set",
+        "UI matches existing design system (Radix UI components)"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Use Radix UI Select component to match existing form elements"
+    },
+    {
+      "id": "US-003",
+      "title": "Display priority in task list",
+      "description": "As a user, I want to see task priorities in the task list so I can quickly identify important tasks",
+      "acceptanceCriteria": [
+        "Each task displays a priority badge (color-coded: red=high, yellow=medium, blue=low)",
+        "Badge is positioned consistently in each task card",
+        "Priority badge is accessible (has proper ARIA labels)",
+        "Badge colors meet WCAG AA contrast requirements",
+        "Tasks can be sorted by priority in the list view"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Consider using existing Badge component from design system"
+    },
+    {
+      "id": "US-004",
+      "title": "Add priority filter to task list",
+      "description": "As a user, I want to filter tasks by priority so I can focus on tasks of a specific importance level",
+      "acceptanceCriteria": [
+        "Task list has a priority filter dropdown",
+        "Filter options: All, High, Medium, Low",
+        "Filtering updates URL query params (for bookmarking)",
+        "Filter persists across page reloads",
+        "Clear filter button resets to 'All'",
+        "Filter works with existing search and status filters"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Ensure filter state is managed alongside existing filters (search, status)"
+    },
+    {
+      "id": "US-005",
+      "title": "Update task priority in edit mode",
+      "description": "As a user, I want to change a task's priority after creation so I can adjust importance as situations change",
+      "acceptanceCriteria": [
+        "Task edit modal includes priority selector",
+        "Current priority is pre-selected in dropdown",
+        "Saving updates the priority in database",
+        "Updated priority immediately reflects in UI",
+        "Priority change is logged in task audit trail (if exists)"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Reuse the same priority selector component from task creation"
+    }
+  ]
+}

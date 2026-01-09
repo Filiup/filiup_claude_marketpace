@@ -6,22 +6,73 @@
 
 set -euo pipefail
 
+# Event logging for external monitoring
+EVENT_LOG=".claude/ralph-prd-events.jsonl"
+
+emit_event() {
+  local event="$1"
+  shift
+  local data="$*"
+  local timestamp
+  timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  # Create event JSON and append to log
+  echo "{\"event\":\"$event\",\"timestamp\":\"$timestamp\",$data}" >> "$EVENT_LOG"
+}
+
 # Read hook input from stdin (advanced stop hook API)
 HOOK_INPUT=$(cat)
 
-# Check if ralph-prd-loop is active
-RALPH_STATE_FILE=".claude/ralph-prd-loop.local.md"
+# Check if ralph-prd-loop is active (JSON format)
+RALPH_STATE_FILE=".claude/ralph-prd-loop.local.json"
 
-if [[ ! -f "$RALPH_STATE_FILE" ]]; then
-  # No active loop - allow exit
+# Backward compatibility: Check for old .md format and migrate
+OLD_STATE_FILE=".claude/ralph-prd-loop.local.md"
+if [[ -f "$OLD_STATE_FILE" ]] && [[ ! -f "$RALPH_STATE_FILE" ]]; then
+  echo "⚠️  Migrating state file to JSON format..." >&2
+  # Run migration script if available
+  if [[ -x "$(dirname "$0")/../scripts/migrate-state-to-json.sh" ]]; then
+    "$(dirname "$0")/../scripts/migrate-state-to-json.sh"
+  else
+    echo "⚠️  Migration script not found. Please run manually:" >&2
+    echo "   ./scripts/migrate-state-to-json.sh" >&2
+    exit 0
+  fi
+fi
+
+# Verify file exists and is not a symlink (prevent path traversal)
+if [[ ! -f "$RALPH_STATE_FILE" ]] || [[ -L "$RALPH_STATE_FILE" ]]; then
+  # No active loop or symlink detected - allow exit
+  if [[ -L "$RALPH_STATE_FILE" ]]; then
+    echo "⚠️  Ralph PRD loop: State file is a symlink (security risk)" >&2
+    echo "   File: $RALPH_STATE_FILE" >&2
+    rm -f "$RALPH_STATE_FILE"
+  fi
   exit 0
 fi
 
-# Parse markdown frontmatter (YAML between ---) and extract values
-FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$RALPH_STATE_FILE")
-ITERATION=$(echo "$FRONTMATTER" | grep '^iteration:' | sed 's/iteration: *//')
-MAX_ITERATIONS=$(echo "$FRONTMATTER" | grep '^max_iterations:' | sed 's/max_iterations: *//')
-COMPLETION_PROMISE=$(echo "$FRONTMATTER" | grep '^completion_promise:' | sed 's/completion_promise: *//' | sed 's/^"\(.*\)"$/\1/')
+# Verify the resolved path is within expected directory
+RESOLVED_STATE_FILE=$(realpath "$RALPH_STATE_FILE" 2>/dev/null)
+EXPECTED_DIR=$(realpath ".claude" 2>/dev/null)
+if [[ ! "$RESOLVED_STATE_FILE" == "$EXPECTED_DIR"/* ]]; then
+  echo "⚠️  Ralph PRD loop: State file path traversal detected" >&2
+  echo "   File: $RALPH_STATE_FILE" >&2
+  echo "   Resolved: $RESOLVED_STATE_FILE" >&2
+  rm -f "$RALPH_STATE_FILE"
+  exit 0
+fi
+
+# Parse JSON state file using jq
+if ! ITERATION=$(jq -r '.iteration' "$RALPH_STATE_FILE" 2>/dev/null); then
+  echo "⚠️  Ralph PRD loop: Failed to parse state file" >&2
+  echo "   File: $RALPH_STATE_FILE" >&2
+  echo "   Ensure it's valid JSON format" >&2
+  rm "$RALPH_STATE_FILE"
+  exit 0
+fi
+
+MAX_ITERATIONS=$(jq -r '.maxIterations' "$RALPH_STATE_FILE")
+COMPLETION_PROMISE=$(jq -r '.completionPromise // "null"' "$RALPH_STATE_FILE")
 
 # Validate numeric fields before arithmetic operations
 if [[ ! "$ITERATION" =~ ^[0-9]+$ ]]; then
@@ -48,17 +99,27 @@ fi
 
 # Check if max iterations reached
 if [[ $MAX_ITERATIONS -gt 0 ]] && [[ $ITERATION -ge $MAX_ITERATIONS ]]; then
+  emit_event "loop_stopped" "\"reason\":\"max_iterations\",\"iteration\":$ITERATION,\"maxIterations\":$MAX_ITERATIONS"
   echo "🛑 Ralph PRD loop: Max iterations ($MAX_ITERATIONS) reached."
   rm "$RALPH_STATE_FILE"
   exit 0
 fi
 
-# Get transcript path from hook input
+# Get transcript path from hook input with validation
 TRANSCRIPT_PATH=$(echo "$HOOK_INPUT" | jq -r '.transcript_path')
 
-if [[ ! -f "$TRANSCRIPT_PATH" ]]; then
-  echo "⚠️  Ralph PRD loop: Transcript file not found" >&2
-  echo "   Expected: $TRANSCRIPT_PATH" >&2
+# Validate transcript path to prevent command injection
+if [[ ! "$TRANSCRIPT_PATH" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
+  echo "⚠️  Ralph PRD loop: Invalid transcript path format" >&2
+  echo "   Path contains unsafe characters" >&2
+  echo "   Ralph loop is stopping." >&2
+  rm "$RALPH_STATE_FILE"
+  exit 0
+fi
+
+# Resolve to absolute path and verify it exists as a regular file
+if ! TRANSCRIPT_PATH=$(realpath "$TRANSCRIPT_PATH" 2>/dev/null) || [[ ! -f "$TRANSCRIPT_PATH" ]]; then
+  echo "⚠️  Ralph PRD loop: Transcript file not found or not accessible" >&2
   echo "   This is unusual and may indicate a Claude Code internal issue." >&2
   echo "   Ralph loop is stopping." >&2
   rm "$RALPH_STATE_FILE"
@@ -111,11 +172,13 @@ fi
 
 # Check for completion promise (only if set)
 if [[ "$COMPLETION_PROMISE" != "null" ]] && [[ -n "$COMPLETION_PROMISE" ]]; then
-  # Extract text from <promise> tags using Perl for multiline support
-  PROMISE_TEXT=$(echo "$LAST_OUTPUT" | perl -0777 -pe 's/.*?<promise>(.*?)<\/promise>.*/$1/s; s/^\s+|\s+$//g; s/\s+/ /g' 2>/dev/null || echo "")
+  # Extract text from <promise> tags using grep/sed (safe, no code execution)
+  # First extract lines containing promise tags, then extract content
+  PROMISE_TEXT=$(echo "$LAST_OUTPUT" | grep -o '<promise>[^<]*</promise>' | sed 's/<promise>\(.*\)<\/promise>/\1/' | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -s ' ' || echo "")
 
   # Use = for literal string comparison
   if [[ -n "$PROMISE_TEXT" ]] && [[ "$PROMISE_TEXT" = "$COMPLETION_PROMISE" ]]; then
+    emit_event "loop_stopped" "\"reason\":\"completion_promise\",\"iteration\":$ITERATION,\"promise\":\"$COMPLETION_PROMISE\""
     echo "✅ Ralph PRD loop: Detected <promise>$COMPLETION_PROMISE</promise>"
     rm "$RALPH_STATE_FILE"
     exit 0
@@ -148,6 +211,7 @@ fi
 
 # If all stories are complete, stop the loop
 if [[ "$INCOMPLETE_STORIES" -eq 0 ]]; then
+  emit_event "loop_stopped" "\"reason\":\"all_complete\",\"iteration\":$ITERATION"
   echo "✅ Ralph PRD loop: All user stories completed (passes: true)"
   rm "$RALPH_STATE_FILE"
   exit 0
@@ -156,30 +220,32 @@ fi
 # Not complete - continue loop with SAME PROMPT
 NEXT_ITERATION=$((ITERATION + 1))
 
-# Extract prompt (everything after the closing ---)
-PROMPT_TEXT=$(awk '/^---$/{i++; next} i>=2' "$RALPH_STATE_FILE")
+# Extract prompt from JSON
+PROMPT_TEXT=$(jq -r '.prompt' "$RALPH_STATE_FILE")
 
-if [[ -z "$PROMPT_TEXT" ]]; then
+if [[ -z "$PROMPT_TEXT" ]] || [[ "$PROMPT_TEXT" == "null" ]]; then
   echo "⚠️  Ralph PRD loop: State file corrupted or incomplete" >&2
   echo "   File: $RALPH_STATE_FILE" >&2
   echo "   Problem: No prompt text found" >&2
-  echo "" >&2
-  echo "   This usually means:" >&2
-  echo "     • State file was manually edited" >&2
-  echo "     • File was corrupted during writing" >&2
-  echo "" >&2
   echo "   Ralph loop is stopping. Run /ralph-prd-loop again to start fresh." >&2
   rm "$RALPH_STATE_FILE"
   exit 0
 fi
 
-# Update iteration in frontmatter (portable across macOS and Linux)
-TEMP_FILE="${RALPH_STATE_FILE}.tmp.$$"
-sed "s/^iteration: .*/iteration: $NEXT_ITERATION/" "$RALPH_STATE_FILE" > "$TEMP_FILE"
+# Update iteration in JSON using secure temp file
+TEMP_FILE=$(mktemp "${RALPH_STATE_FILE}.XXXXXX")
+trap 'rm -f "$TEMP_FILE"' EXIT
+
+jq --arg nextIter "$NEXT_ITERATION" '.iteration = ($nextIter | tonumber)' "$RALPH_STATE_FILE" > "$TEMP_FILE"
+chmod 600 "$TEMP_FILE"  # Ensure restrictive permissions
 mv "$TEMP_FILE" "$RALPH_STATE_FILE"
 
 # Get next story info for status message
 NEXT_STORY=$(jq -r '[.userStories[] | select(.passes == false)] | sort_by(.priority) | first | "\(.id): \(.title)"' "$PRD_FILE" 2>/dev/null || echo "unknown")
+NEXT_STORY_ID=$(echo "$NEXT_STORY" | cut -d: -f1)
+
+# Emit iteration event
+emit_event "iteration_started" "\"iteration\":$NEXT_ITERATION,\"incompleteStories\":$INCOMPLETE_STORIES,\"nextStory\":\"$NEXT_STORY_ID\""
 
 # Build system message with iteration count, completion promise, and story info
 if [[ "$COMPLETION_PROMISE" != "null" ]] && [[ -n "$COMPLETION_PROMISE" ]]; then

@@ -15,7 +15,21 @@ Ralph PRD implements the ["Ralph Wiggum" pattern](https://x.com/natfriedman/stat
 
 ## Installation
 
-This plugin is included in the official Claude Code plugins repository. No additional installation needed.
+**Prerequisites:** jq (1.6+), git (2.0+), Claude Code CLI (1.0+), bash (4.0+)
+
+**Quick Install:**
+```bash
+# Via Claude Code commands
+/plugin marketplace add https://github.com/Filiup/filiup_claude_marketpace
+/plugin install ralph-prd@filiup_marketplace
+```
+
+**Detailed Guide:** See [INSTALL.md](../../INSTALL.md) for:
+- Step-by-step installation
+- Prerequisites with version requirements
+- Platform-specific instructions (macOS, Linux, Windows)
+- Verification steps
+- Troubleshooting common issues
 
 ## Commands
 
