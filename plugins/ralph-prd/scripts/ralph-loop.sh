@@ -124,21 +124,26 @@ while [ $ITERATION -lt $MAX_ITERATIONS ]; do
   # --chrome: Enable Chrome extension for browser testing
   # --system-prompt: Load instructions from file
 
+  # Run Claude and capture output to log file
+  STORY_LOG=".claude/story-$STORY_ID-$(date +%s).log"
+
   if claude --print \
     --add-dir "$(pwd)" \
-    --allowed-tools "Read,Write,Edit,Glob,Grep,Bash(git:*),Bash(npm:*),Bash(npx:*),Bash(jq:*),Bash(date:*),Bash(echo:*),mcp__plugin_compound-engineering_pw__*" \
+    --allowed-tools "Read,Write,Edit,MultiEdit,Glob,Grep,Bash(git:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(jq:*),Bash(date:*),Bash(echo:*),Bash(cat:*),Bash(mkdir:*),Bash(touch:*),Bash(chmod:*),Bash(mv:*),Bash(cp:*),Bash(ls:*),Bash(find:*),Bash(grep:*),Bash(sed:*),Bash(awk:*),Bash(tsc:*),Bash(eslint:*),Bash(prettier:*),TodoWrite,Task,mcp__plugin_compound-engineering_pw__*" \
     --permission-mode acceptEdits \
     --chrome \
     --system-prompt "$(cat "$PROMPT_FILE")" \
-    "Implement story $STORY_ID from $PRD_FILE"; then
+    "Implement story $STORY_ID from $PRD_FILE" > "$STORY_LOG" 2>&1; then
 
     echo ""
     echo -e "${GREEN}✅ Claude CLI completed successfully${NC}"
+    echo -e "${GREEN}   Log saved to: $STORY_LOG${NC}"
 
   else
     EXIT_CODE=$?
     echo ""
     echo -e "${RED}❌ Claude CLI exited with error (code: $EXIT_CODE)${NC}"
+    echo -e "${RED}   Check log: $STORY_LOG${NC}"
     echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"event\":\"story_failed\",\"storyId\":\"$STORY_ID\",\"reason\":\"claude_exit_error\",\"exitCode\":$EXIT_CODE}" >> "$EVENTS_LOG"
 
     # Check if story was still marked complete despite error

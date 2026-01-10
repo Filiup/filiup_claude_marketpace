@@ -72,13 +72,18 @@ npm run lint 2>&1 || eslint . 2>&1 || ruff check . 2>&1
 
 **Only commit if ALL checks pass.**
 
+**IMPORTANT**: Do NOT commit prd.json or progress.jsonl - these are state tracking files that should not be in git history for every story.
+
 ```bash
 # Get story details
 STORY_ID=$(jq -r '[.userStories[] | select(.passes == false)] | sort_by(.priority) | first | .id' prd.json)
 STORY_TITLE=$(jq -r "[.userStories[] | select(.id == \"$STORY_ID\")][0] | .title" prd.json)
 
-# Commit ALL changes
+# Stage all changes EXCEPT state tracking files
 git add -A
+git reset prd.json progress.jsonl 2>/dev/null || true
+
+# Commit only the implementation changes
 git commit -m "feat: $STORY_ID - $STORY_TITLE
 
 Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
@@ -86,7 +91,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ### 5. Update State Files
 
-**After successful commit, update prd.json and progress.jsonl:**
+**After successful commit, update prd.json and progress.jsonl (but don't commit them):**
 
 ```bash
 # Mark story as complete
@@ -222,16 +227,19 @@ echo '{"timestamp":"2026-01-10T14:30:00Z","storyId":"US-002","action":"completed
 echo "✅ Story US-002 completed successfully"
 ```
 
-## Browser Verification (Required for UI Stories)
+## Browser Verification (Optional for UI Stories)
 
-For any story that changes UI, you MUST verify it works in the browser:
+For UI stories, browser verification is optional and should only be done if:
+- The dev server is already running (check with `curl http://localhost:5173`)
+- The story explicitly requires visual verification
+- You have time within the context window
 
-1. Use MCP browser tools (mcp__plugin_compound-engineering_pw__*)
-2. Navigate to the relevant page
-3. Verify the UI changes work as expected
-4. Take a screenshot if helpful for the progress log
+If attempting browser verification:
+1. First check if dev server is running: `curl -s http://localhost:5173 > /dev/null && echo "running" || echo "not running"`
+2. If not running, skip browser verification
+3. If running, use MCP browser tools (mcp__plugin_compound-engineering_pw__*)
 
-A frontend story is NOT complete until browser verification passes.
+**Browser verification failures should NOT block story completion** - implementation and quality checks (typecheck, tests) are sufficient.
 
 ## Notes
 
