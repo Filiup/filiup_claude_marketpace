@@ -1,7 +1,7 @@
 ---
 description: "Start Ralph PRD Loop - autonomous coordinator for completing user stories"
 argument-hint: "[--max-iterations N]"
-allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-prd.sh:*)"]
+allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-prd.sh:*)", "Bash(jq:*)", "Bash(date:*)", "Bash(echo:*)", "Bash(mkdir:*)", "Task"]
 hide-from-slash-command-tool: "true"
 ---
 
@@ -15,15 +15,28 @@ Execute the setup script to initialize the Ralph PRD loop:
 
 You are now a **coordinator agent** orchestrating story implementation.
 
+## ⚠️  CRITICAL RULES - READ FIRST
+
+**YOU ARE A COORDINATOR ONLY. YOU MUST NOT IMPLEMENT STORIES YOURSELF.**
+
+Forbidden actions (you will fail if you do these):
+- ❌ Do NOT read source code files
+- ❌ Do NOT edit source code files
+- ❌ Do NOT write source code
+- ❌ Do NOT run git commands (except git status/log to check state)
+- ❌ Do NOT run build/test commands directly
+
+**Your ONLY job**: Spawn Task agents and monitor their results.
+
 ## Your Role
 
 You DO NOT implement stories yourself. Instead, you:
 1. Read `prd.json` to find incomplete stories
-2. Spawn Task agents (one per story) to implement each story
+2. **SPAWN Task agents** (one per story) to implement each story
 3. Monitor progress and handle failures
 4. Report completion when all stories pass
 
-**Critical**: Each story gets a FRESH Task agent with FRESH context. This prevents context accumulation.
+**Critical**: Each story gets a FRESH Task agent with FRESH context (~150k tokens). This prevents context accumulation.
 
 ## Coordinator Loop
 
@@ -93,7 +106,7 @@ fi
 STORY_TITLE=$(jq -r ".userStories[] | select(.id == \"$NEXT_STORY\") | .title" "$PRD_FILE")
 ```
 
-#### Step 4: Log and Spawn Task Agent
+#### Step 4: Log Story Start
 
 ```bash
 echo ""
@@ -106,37 +119,26 @@ TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo "{\"event\":\"story_started\",\"timestamp\":\"$TIMESTAMP\",\"iteration\":$ITERATION,\"storyId\":\"$NEXT_STORY\",\"storyTitle\":\"$STORY_TITLE\"}" >> .claude/ralph-prd-events.jsonl
 ```
 
-Now use the Task tool to spawn a fresh agent:
+#### Step 5: Spawn Task Agent
 
-```
-Task tool call:
-  subagent_type: "general-purpose"
-  description: "Implement story $NEXT_STORY"
-  prompt: "
-You are implementing story $NEXT_STORY from prd.json.
+**CRITICAL**: You MUST use the Task tool to spawn a fresh agent. DO NOT implement the story yourself.
 
-Follow the instructions in ${CLAUDE_PLUGIN_ROOT}/agents/implement-story.md
+Use the Task tool with these parameters:
+- subagent_type: "general-purpose"
+- description: "Implement story $NEXT_STORY"
+- prompt: Include the story ID and instructions to follow ${CLAUDE_PLUGIN_ROOT}/agents/implement-story.md
 
-Your job:
+The Task agent prompt should tell the agent:
 1. Read prd.json and find story $NEXT_STORY
 2. Read progress.jsonl for previous learnings
-3. Implement the story
+3. Implement ONLY that story
 4. Run quality checks (retry up to 3 times if needed)
-5. If checks pass:
-   - Commit changes
-   - Update prd.json (set passes: true)
-   - Append to progress.jsonl
+5. If checks pass: commit, update prd.json (passes: true), append to progress.jsonl
 6. Report completion
 
-You are running in FRESH CONTEXT. Previous stories were done by other agents.
-Memory is in: git commits, prd.json, progress.jsonl.
+**IMPORTANT**: After spawning the Task agent, WAIT for it to complete. Do NOT proceed to the next step until the Task agent has finished.
 
-Story ID: $NEXT_STORY
-Story Title: $STORY_TITLE
-"
-```
-
-#### Step 5: Check Result
+#### Step 6: Check Result
 
 After Task agent completes, check if story passed:
 

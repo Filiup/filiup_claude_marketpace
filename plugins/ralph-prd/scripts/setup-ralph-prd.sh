@@ -23,12 +23,12 @@ OPTIONS:
   -h, --help              Show this help message
 
 DESCRIPTION:
-  Starts a Ralph PRD Loop in your CURRENT session. The stop hook prevents
-  exit and feeds your output back as input until all user stories in prd.json
-  have passes: true, or the iteration limit is reached.
+  Starts a Ralph PRD Loop coordinator that spawns FRESH Task agents per story.
 
-  To signal completion, output: <promise>ALL_STORIES_COMPLETE</promise>
-  (This happens automatically when all stories are complete)
+  YOU ARE A COORDINATOR - you spawn Task agents, you do NOT implement code yourself.
+  Each story gets a fresh Claude instance with ~150k token context window.
+
+  This prevents context exhaustion on large features.
 
 REQUIREMENTS:
   - prd.json must exist in the current directory
@@ -43,17 +43,17 @@ STOPPING:
   The loop stops when:
   - All stories in prd.json have passes: true
   - Max iterations is reached (if set)
-  - You output <promise>ALL_STORIES_COMPLETE</promise>
+  - A Task agent fails (coordinator stops and reports error)
 
 MONITORING:
-  # View current iteration and remaining stories:
-  head -10 .claude/ralph-prd-loop.local.md
-
   # Check PRD status:
   jq '.userStories[] | {id, title, passes}' prd.json
 
+  # View events:
+  tail -f .claude/ralph-prd-events.jsonl
+
   # View progress:
-  tail -20 progress.txt
+  tail -20 progress.jsonl
 HELP_EOF
       exit 0
       ;;
