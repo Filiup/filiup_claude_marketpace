@@ -9,43 +9,45 @@ Ralph PRD implements the ["Ralph Wiggum" pattern](https://x.com/natfriedman/stat
 **How it works:**
 1. You write a Product Requirements Document (PRD) describing your feature
 2. Convert it to `prd.json` with structured user stories
-3. Start the Ralph loop - coordinator spawns Task agents per story
-4. Each Task agent gets **fresh context** (~150k tokens) to implement one story
+3. Start the Ralph loop - bash wrapper spawns fresh Claude CLI processes per story
+4. Each Claude CLI process gets **fresh context** (~150k tokens) to implement one story
 5. Loop continues until all stories have `passes: true`
 
 ## Architecture
 
 **Problem**: Traditional single-session agents accumulate context over many iterations, eventually hitting context window limits and failing on larger features.
 
-**Solution**: Ralph PRD uses a **coordinator + Task agent** pattern:
+**Solution**: Ralph PRD uses a **bash wrapper pattern** (like [snarktank/ralph](https://github.com/snarktank/ralph)) that spawns fresh Claude CLI processes:
 
 ```
 ┌──────────────────────────────────────────┐
-│  Coordinator Agent (minimal context)    │
+│  Bash Wrapper (ralph-loop.sh)           │
+│  - NO LLM context (pure orchestration)  │
 │  - Reads prd.json                        │
-│  - Finds next incomplete story           │
-│  - Spawns Task agent per story           │
+│  - Finds next incomplete story (jq)     │
+│  - Spawns fresh claude --print process  │
 │  - Monitors progress                     │
 └──────────────────────────────────────────┘
                   │
-                  ├─> Task Agent 1 (US-001) → Fresh 150k context → Impl + Commit → Exit
+                  ├─> Claude CLI 1 (US-001) → Fresh 150k context → Impl + Commit → Exit (context discarded)
                   │
-                  ├─> Task Agent 2 (US-002) → Fresh 150k context → Impl + Commit → Exit
+                  ├─> Claude CLI 2 (US-002) → Fresh 150k context → Impl + Commit → Exit (context discarded)
                   │
-                  └─> Task Agent 3 (US-003) → Fresh 150k context → Impl + Commit → Exit
+                  └─> Claude CLI 3 (US-003) → Fresh 150k context → Impl + Commit → Exit (context discarded)
 ```
 
 **Key benefits**:
 - ✅ Each story gets full context window (~150k tokens)
-- ✅ No context accumulation across stories
-- ✅ Can handle 50+ story features (limited only by story size, not total count)
+- ✅ **Zero context accumulation** (bash wrapper has no LLM context)
+- ✅ **True process isolation** (each Claude CLI is separate OS process)
+- ✅ Can handle unlimited stories (limited only by story size, not count)
 - ✅ Pausable/resumable (prd.json = state)
 - ✅ Quality gates per story (typecheck, tests)
 
 **Memory mechanism**:
 - **Code state**: Git commits (ground truth)
 - **Story status**: prd.json (`passes: true/false`)
-- **Learnings**: progress.jsonl (for future Task agents to read)
+- **Learnings**: progress.jsonl (for future Claude CLI instances to read)
 
 ## Installation
 
@@ -126,20 +128,20 @@ Starts the Ralph loop to iteratively implement all user stories.
 ```
 
 **What happens:**
-1. **Coordinator** reads `prd.json` and finds highest priority story with `passes: false`
-2. **Spawns fresh Task agent** for that story (fresh context ~150k tokens)
-3. **Task agent**:
+1. **Bash wrapper** reads `prd.json` and finds highest priority story with `passes: false`
+2. **Spawns fresh Claude CLI process** (`claude --print`) for that story (fresh context ~150k tokens)
+3. **Claude CLI process**:
    - Reads prd.json, progress.jsonl for context
    - Implements the single story
    - Runs quality checks (typecheck, tests, lint) with retries
    - Commits if checks pass: `feat: US-001 - Add priority field to database`
    - Updates prd.json (`passes: true`)
    - Appends learnings to progress.jsonl
-   - Exits (context discarded)
-4. **Coordinator** checks result and spawns next Task agent
+   - Exits (OS discards context)
+4. **Bash wrapper** verifies result and spawns next Claude CLI process
 5. Repeats until all stories have `passes: true`
 
-**Key benefit**: Each story gets fresh context → no context accumulation → unlimited stories possible
+**Key benefit**: Each story gets fresh OS process → zero context accumulation → unlimited stories possible
 
 ### `/cancel-ralph-prd` - Stop the loop
 
@@ -191,12 +193,14 @@ jq '.userStories[] | {id, title, passes}' prd.json
 
 ### View progress log
 ```bash
-tail -20 progress.txt
+tail -20 progress.jsonl
+jq '.' progress.jsonl  # Pretty-print all entries
 ```
 
-### Check loop state
+### View events log
 ```bash
-head -10 .claude/ralph-prd-loop.local.md
+tail -20 .claude/ralph-prd-events.jsonl
+jq '.' .claude/ralph-prd-events.jsonl  # Pretty-print all events
 ```
 
 ### Use the utility script
@@ -226,15 +230,14 @@ Incomplete: 2
 ## Files Created
 
 - `prd.json` - User stories with pass/fail tracking
-- `progress.txt` - Learnings and patterns discovered during implementation
-- `AGENTS.md` - Directory-specific learnings for future agents/developers
-- `.claude/ralph-prd-loop.local.md` - Loop state (temporary)
+- `progress.jsonl` - Append-only log of completed stories with learnings
+- `.claude/ralph-prd-events.jsonl` - Event log (loop started, story completed, etc.)
 
 ## Story Size Guidelines
 
-**Each story must be completable in ONE Task agent context window (~150k tokens).**
+**Each story must be completable in ONE Claude CLI context window (~150k tokens).**
 
-Each story gets its own fresh Task agent. If a story is too large to implement within one context window, it will fail.
+Each story gets its own fresh Claude CLI process. If a story is too large to implement within one context window, it will fail.
 
 ✅ **Right-sized stories:**
 - Add a database column and migration
@@ -288,35 +291,36 @@ UI stories are NOT complete until visually verified. Ralph uses MCP browser tool
 
 ## Progress Tracking
 
-Ralph maintains two types of learnings:
+Ralph maintains progress in `progress.jsonl` (append-only JSONL format):
 
-### `progress.txt` - Iteration Log
-Each iteration appends:
-```markdown
-## 2025-01-09 14:30 - US-003
-- Implemented priority selector dropdown in task edit modal
-- Files changed: src/components/TaskEditModal.tsx, src/types/task.ts
-- **Learnings for future iterations:**
-  - This codebase uses Radix UI for dropdowns
-  - Always update TypeScript types in src/types/ when adding fields
-  - Modal state is managed via Zustand store
----
+### `progress.jsonl` - Story Log
+Each completed story appends one JSON entry:
+```json
+{
+  "timestamp": "2026-01-10T14:30:00Z",
+  "storyId": "US-003",
+  "action": "completed",
+  "summary": "Added priority selector dropdown in task edit modal",
+  "filesChanged": ["src/components/TaskEditModal.tsx", "src/types/task.ts"],
+  "learnings": [
+    "This codebase uses Radix UI for dropdowns",
+    "Always update TypeScript types in src/types/ when adding fields",
+    "Modal state is managed via Zustand store"
+  ],
+  "durationMinutes": 25
+}
 ```
 
-### `AGENTS.md` - Reusable Patterns
-Directory-specific learnings that help future work:
-```markdown
-# src/components/
+**What gets logged**:
+- **timestamp**: ISO 8601 UTC format
+- **storyId**: Story ID (e.g., "US-003")
+- **action**: "completed" or "failed"
+- **summary**: One-sentence description of what was implemented
+- **filesChanged**: Array of modified file paths
+- **learnings**: Patterns, gotchas, and context for future Claude CLI instances
+- **durationMinutes**: Approximate time spent (optional)
 
-## Patterns
-- All modals use Radix UI Dialog primitive
-- Form state managed with React Hook Form
-- Validation schemas in src/lib/validations/
-
-## Gotchas
-- Modal components must be wrapped in DialogProvider
-- Always add data-testid for testing
-```
+**Purpose**: Each fresh Claude CLI instance reads all previous entries to understand patterns and avoid repeated mistakes.
 
 ## Stopping the Loop
 
@@ -333,7 +337,7 @@ If you have an existing prd.json and want to start a new feature, the converter 
 ### Manual intervention
 If Ralph gets stuck, you can:
 1. Manually edit prd.json to mark stories complete
-2. Update progress.txt with context
+2. Append to progress.jsonl with learnings
 3. Resume the loop - it will pick up where it left off
 
 ### Custom quality checks
@@ -352,12 +356,14 @@ This plugin adapts the Amp-based workflow to Claude Code:
 
 | snarktank/ralph | ralph-prd plugin |
 |-----------------|------------------|
-| External bash loop | Coordinator agent |
-| Spawns fresh `amp` CLI per story | Spawns fresh Task agent per story |
-| Amp skills/ | Claude Code agents/ |
+| External bash loop (ralph.sh) | External bash loop (ralph-loop.sh) |
+| Spawns fresh `amp` CLI per story | Spawns fresh `claude` CLI per story |
+| Amp prompt.md | Claude prompts/implement-story.md |
 | `$AMP_CURRENT_THREAD_ID` | Not needed (no threads) |
-| dev-browser skill | MCP browser tools |
-| Fresh process = fresh context | Fresh Task = fresh context |
+| dev-browser skill | MCP browser tools (mcp__plugin_compound-engineering_pw__*) |
+| Fresh process = fresh context | Fresh process = fresh context |
+| progress.txt | progress.jsonl (JSONL format) |
+| `--dangerously-allow-all` | `--add-dir` + `--allowed-tools` + `--permission-mode` (secure) |
 
 ## Troubleshooting
 

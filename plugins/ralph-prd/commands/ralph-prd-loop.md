@@ -1,148 +1,226 @@
 ---
-description: "Start Ralph PRD Loop - autonomous coordinator for completing user stories"
-argument-hint: "[--max-iterations N]"
-allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-prd.sh:*)", "Bash(jq:*)", "Bash(date:*)", "Bash(echo:*)", "Bash(mkdir:*)", "Task", "Read(prd.json)"]
-hide-from-slash-command-tool: "true"
+description: "Start Ralph PRD Loop - autonomous implementation of PRD stories"
+argument-hint: "[max-iterations]"
+allowed-tools: ["Bash"]
+hide-from-slash-command-tool: "false"
 ---
 
-# Ralph PRD Loop - Coordinator Mode
+# Ralph PRD Loop
 
-Execute the setup script to initialize the Ralph PRD loop:
+Implements all incomplete user stories from prd.json by spawning fresh Claude CLI instances per story.
+
+## How It Works
+
+Ralph uses a **bash wrapper pattern** (inspired by [snarktank/ralph](https://github.com/snarktank/ralph)) that spawns fresh `claude --print` CLI processes per story:
+
+```
+Bash Wrapper (ralph-loop.sh)
+  ├─> Find next incomplete story (jq query on prd.json)
+  ├─> Spawn fresh Claude CLI process
+  │   ├─ Load prompts/implement-story.md as system prompt
+  │   ├─ Fresh context window (~150k tokens)
+  │   ├─ Implement story
+  │   ├─ Run quality checks (typecheck, tests)
+  │   ├─ Commit if passing
+  │   ├─ Update prd.json (passes: true)
+  │   ├─ Append to progress.jsonl
+  │   └─ Exit (context discarded)
+  ├─> Verify result in prd.json
+  └─> Loop to next story (spawn fresh Claude CLI)
+```
+
+**Key benefit**: Each story gets fresh ~150k token context. No context accumulation. Unlimited stories possible.
+
+## Usage
 
 ```!
-"${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-prd.sh" $ARGUMENTS
+"${CLAUDE_PLUGIN_ROOT}/scripts/ralph-loop.sh" prd.json $ARGUMENTS
 ```
 
-You are now a **coordinator agent** orchestrating story implementation.
+**Arguments**:
+- First arg: PRD file (default: prd.json)
+- Second arg: Max iterations (default: 50)
 
-## ⚠️  ABSOLUTE RULES - VIOLATION WILL CAUSE FAILURE
-
-**YOU ARE FORBIDDEN FROM IMPLEMENTING STORIES.**
-
-You have ONLY these permissions:
-- ✅ Read prd.json using Read tool
-- ✅ Run jq/date/echo commands via Bash tool
-- ✅ **Spawn Task agents using Task tool**
-- ❌ **NO Write tool** - you cannot create files
-- ❌ **NO Edit tool** - you cannot edit files
-- ❌ **NO git commands** - Task agents handle commits
-- ❌ **NO implementation** - Task agents do ALL coding
-
-**If you try to implement a story yourself, you will fail and the loop will stop.**
-
-## Your ONLY Job
-
-For each incomplete story in prd.json:
-1. Use **Task tool** to spawn a fresh agent
-2. Wait for agent to finish
-3. Check if story.passes became true
-4. If yes: continue to next story
-5. If no: stop and report failure
-
-## How To Execute The Loop
-
-Start by reading prd.json to understand the current state:
-
-**Read prd.json now.**
-
-Then find the highest priority story where `passes: false`. You can use jq via Bash tool:
-
+**Example**:
 ```bash
-jq -r '[.userStories[] | select(.passes == false)] | sort_by(.priority) | first | .id' prd.json
+/ralph-prd-loop          # Use prd.json, max 50 iterations
+/ralph-prd-loop 20       # Use prd.json, max 20 iterations
 ```
 
-Once you have the story ID, **immediately use the Task tool** to spawn an agent:
+## What Happens
 
-**Task tool parameters:**
-- `subagent_type`: "general-purpose"
-- `description`: "Implement story [STORY_ID]"
-- `prompt`: Must include these instructions:
+1. **Bash wrapper reads prd.json**
+   - Finds highest priority story where `passes: false`
+   - Checks you're in git repo
+
+2. **Spawns fresh Claude CLI**
+   ```bash
+   claude --print \
+     --add-dir "$(pwd)" \
+     --allowed-tools "Read,Write,Edit,Bash(git:*),Bash(npm:*),..." \
+     --permission-mode acceptEdits \
+     --chrome \
+     --system-prompt "$(cat prompts/implement-story.md)" \
+     "Implement story US-001 from prd.json"
+   ```
+
+3. **Claude implements story**
+   - Reads prd.json to find assigned story
+   - Reads progress.jsonl for previous learnings
+   - Implements the story
+   - Runs quality checks (max 3 retries)
+   - Commits if passing
+   - Updates prd.json + progress.jsonl
+   - Exits
+
+4. **Bash wrapper verifies**
+   - Checks if story.passes = true in prd.json
+   - If yes: continues to next story
+   - If no: stops loop, reports failure
+
+5. **Repeat until all complete**
+
+## Security
+
+The bash wrapper uses multiple security layers:
+
+- `--add-dir "$(pwd)"` - Restricts file access to project directory only
+- `--allowed-tools` - Whitelist only: Read, Write, Edit, git, npm, jq, browser tools
+- `--permission-mode acceptEdits` - Auto-approve edits in project dir
+- **Cannot access**: ~/Documents, ~/.ssh, system files
+- **Cannot run**: rm, curl, wget, arbitrary bash commands
+
+All changes are committed to git → easily reversible with `git reset --hard`.
+
+## Progress Monitoring
+
+### Check story status:
+```bash
+jq '.userStories[] | {id, title, passes}' prd.json
+```
+
+### View recent events:
+```bash
+tail -20 .claude/ralph-prd-events.jsonl
+```
+
+### Watch in real-time (separate terminal):
+```bash
+tail -f .claude/ralph-prd-events.jsonl
+```
+
+### Check progress learnings:
+```bash
+jq -r '.learnings[]?' progress.jsonl | sort -u
+```
+
+## How Fresh Context Works
+
+**Each `claude --print` spawn = separate OS process = fresh ~150k token context.**
 
 ```
-You are implementing story [STORY_ID] from prd.json.
-
-Read the file at ${CLAUDE_PLUGIN_ROOT}/agents/implement-story.md for full instructions.
-
-Your task:
-1. Read prd.json and find story [STORY_ID]
-2. Read progress.jsonl for previous learnings (if exists)
-3. Implement ONLY that one story
-4. Run quality checks (typecheck, tests if applicable)
-5. Retry up to 3 times if checks fail
-6. If checks pass:
-   - Commit changes with message: "feat: [STORY_ID] - [Story Title]"
-   - Update prd.json to set passes: true for story [STORY_ID]
-   - Append to progress.jsonl with learnings
-7. Report completion
-
-Story ID: [STORY_ID]
-Story Title: [STORY_TITLE]
-
-You are running in FRESH CONTEXT. Previous stories were done by other agents.
-Memory is in: git commits, prd.json, progress.jsonl.
+Iteration 1: Fresh Claude CLI process → US-001 → Implement + Commit → Exit (context discarded)
+Iteration 2: Fresh Claude CLI process → US-002 → Implement + Commit → Exit (context discarded)
+Iteration 3: Fresh Claude CLI process → US-003 → Implement + Commit → Exit (context discarded)
 ```
 
-**After spawning Task agent:**
-1. Wait for it to complete
-2. Read prd.json again
-3. Check if story.passes is now true
-4. If yes: log success and continue to next story
-5. If no: log failure and stop loop
+**No context accumulation** → Can handle 50+ story features.
 
-**Repeat until:**
-- All stories have passes: true (success!)
-- OR a story fails after retries (stop, user must intervene)
-- OR max iterations reached (stop)
+**Memory preserved via:**
+- **Git commits**: Code state (ground truth)
+- **prd.json**: Story status (passes: true/false)
+- **progress.jsonl**: Learnings from previous Claude instances
 
-## Event Logging
+## Stopping the Loop
 
-Log events to .claude/ralph-prd-events.jsonl using echo via Bash:
+The loop stops when:
+1. **All stories complete** - All passes: true in prd.json
+2. **Story fails** - Claude instance couldn't complete story after retries
+3. **Max iterations** - Safety limit reached (default: 50)
+4. **User cancels** - Ctrl+C
 
-- loop_started
-- story_started
-- story_completed
-- story_failed
-- loop_completed
-- loop_stopped
-
-## Example Flow
-
-1. Read prd.json → Find US-001 with passes: false
-2. **Use Task tool** → Spawn fresh agent for US-001
-3. Wait → Agent implements, commits, updates prd.json
-4. Read prd.json → Confirm US-001.passes = true
-5. Log success → story_completed event
-6. Read prd.json → Find US-002 with passes: false
-7. **Use Task tool** → Spawn fresh agent for US-002
-8. ... repeat
-
-## Critical Reminders
-
-- **DO NOT implement stories yourself**
-- **DO NOT create or edit files**
-- **DO NOT run git commands**
-- **ONLY use Task tool to spawn agents**
-- Each Task agent gets fresh ~150k context
-- This prevents context accumulation
-- Unlimited stories possible (bounded by story size only)
+To resume: Just run `/ralph-prd-loop` again - picks up where it left off.
 
 ## Recovery from Failures
 
 If a story fails:
-1. Task agent will report the failure
-2. Coordinator logs story_failed event
+1. Claude reports the error (quality checks failed, etc.)
+2. Bash wrapper logs story_failed event
 3. Loop stops
-4. User must:
-   - Fix issue manually OR
-   - Simplify story in prd.json OR
-   - Skip story (set passes: true manually)
-5. Run /ralph-prd-loop again to resume
 
-## Why Task Agents?
+**To recover:**
+- Fix issue manually, commit, mark passes: true in prd.json OR
+- Simplify story requirements in prd.json OR
+- Skip story (set passes: true with note in story.notes)
 
-Each Task spawn = fresh 150k token context.
-No context accumulation across stories.
-This solves the context exhaustion problem.
+Then run `/ralph-prd-loop` again to continue.
 
-**OLD pattern**: Single session → context fills up → fails on large features
-**NEW pattern**: Fresh Task per story → unlimited stories possible
+## Architecture Benefits
+
+**Problem**: Single-session agents accumulate context over iterations → context exhaustion on large features
+
+**Solution**: Bash wrapper spawns fresh Claude CLI processes per story
+
+✅ Each story gets full ~150k token context
+✅ No context accumulation across stories
+✅ Can handle unlimited stories (limited only by story size, not count)
+✅ Pausable/resumable (prd.json = state)
+✅ Quality gates per story (typecheck, tests)
+✅ Fresh process = true isolation (OS-level)
+
+## Comparison to snarktank/ralph
+
+| Aspect | snarktank/ralph | ralph-prd plugin |
+|--------|----------------|------------------|
+| Loop orchestrator | Bash script (ralph.sh) | Bash script (ralph-loop.sh) |
+| Fresh instances | `amp --dangerously-allow-all` | `claude --print` with security flags |
+| Story instructions | prompt.md | prompts/implement-story.md |
+| State tracking | prd.json + progress.txt | prd.json + progress.jsonl |
+| Memory preservation | Git + files | Git + files |
+| Context per story | Fresh ~150k tokens | Fresh ~150k tokens |
+| Scalability | Unlimited stories | Unlimited stories |
+
+## Example Output
+
+```
+╔═══════════════════════════════════════════════════════════╗
+║  Ralph PRD Loop - Autonomous Story Implementation        ║
+╚═══════════════════════════════════════════════════════════╝
+
+PRD File: prd.json
+Max Iterations: 50
+Branch: ralph/add-priority-system
+
+Starting implementation loop...
+
+═══════════════════════════════════════════════════════════
+  Iteration 1 of 50
+═══════════════════════════════════════════════════════════
+📝 Story: US-001 (Priority: 1)
+   Title: Add priority column to tasks table
+   Remaining: 4 stories
+
+🚀 Spawning fresh Claude CLI instance...
+
+[Claude implements story, runs tests, commits]
+
+✅ Claude CLI completed successfully
+✅ Story US-001 marked complete in prd.json
+
+═══════════════════════════════════════════════════════════
+  Iteration 2 of 50
+═══════════════════════════════════════════════════════════
+📝 Story: US-002 (Priority: 2)
+   Title: Display priority indicator on task cards
+   Remaining: 3 stories
+
+...
+```
+
+## Notes
+
+- This command just invokes the bash wrapper
+- Real loop logic is in scripts/ralph-loop.sh
+- Each Claude CLI invocation is a separate OS process
+- Bash wrapper has no LLM context (just orchestration)
+- Architecture ensures no context exhaustion
