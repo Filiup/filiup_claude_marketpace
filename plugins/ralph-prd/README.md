@@ -58,6 +58,11 @@ Ralph PRD implements the ["Ralph Wiggum" pattern](https://x.com/natfriedman/stat
 /plugin install ralph-prd@filiup_marketplace
 ```
 
+**Updating after git changes:**
+```bash
+/plugin marketplace update filiup_marketplace
+```
+
 **Detailed Guide:** See [INSTALL.md](../../INSTALL.md) for:
 - Step-by-step installation
 - Prerequisites with version requirements
